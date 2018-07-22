@@ -1,0 +1,113 @@
+# Copyright (c) 2016, NVIDIA CORPORATION. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#  * Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+#  * Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#  * Neither the name of NVIDIA CORPORATION nor the names of its
+#    contributors may be used to endorse or promote products derived
+#    from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY
+# EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+# PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+# EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+# PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+# PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+# OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import time
+
+# import gym
+from CanvasUtils import CanvasUtils
+import random
+import numpy
+import tkinter
+
+
+class GameManager:
+    def __init__(self, size, sigma):
+        self.size = size
+        self.sigma = sigma
+        self.colors = []
+        self.transposed_colors_1 = []
+        self.transposed_colors_2 = []
+        self.colors_array = numpy.array([], numpy.float32)
+        self.transposed_colors_array = numpy.array([], numpy.float32)
+        self.x_target = 0
+        self.y_target = 0
+        self.transform_matrix_1 = []
+
+    def step(self):
+        self.colors = []
+        self.transposed_colors_1 = []
+        for color_column_index in range(0, self.size + 6 * self.sigma):
+            self.colors.append([])
+            self.transposed_colors_1.append([])
+            for color_row_index in range(0, self.size + 6 * self.sigma):
+                self.colors[-1].append([255, 255, 255])
+                self.transposed_colors_1[-1].append([0, 0, 0])
+        for triangle_index in range(10):
+            x_1 = random.randint(3 * self.sigma, self.size + 3 * self.sigma)
+            y_1 = random.randint(3 * self.sigma, self.size + 3 * self.sigma)
+            x_2 = int(random.gauss(x_1, 10))
+            if x_2 < 3 * self.sigma:
+                x_2 = 3 * self.sigma
+            if x_2 >= self.size + 3 * self.sigma:
+                x_2 = self.size + 3 * self.sigma - 1
+            y_2 = int(random.gauss(y_1, 10))
+            if y_2 < 3 * self.sigma:
+                y_2 = 3 * self.sigma
+            if y_2 >= self.size + 3 * self.sigma:
+                y_2 = self.size + 3 * self.sigma - 1
+            x_3 = int(random.gauss(x_2, 10))
+            if x_3 < 3 * self.sigma:
+                x_3 = 3 * self.sigma
+            if x_3 >= self.size + 3 * self.sigma:
+                x_3 = self.size + 3 * self.sigma - 1
+            y_3 = int(random.gauss(y_2, 10))
+            if y_3 < 3 * self.sigma:
+                y_3 = 3 * self.sigma
+            if y_3 >= self.size + 3 * self.sigma:
+                y_3 = self.size + 3 * self.sigma - 1
+            color = [random.randint(0, 255) for i in range(0, 3)]
+            CanvasUtils.add_triangle(self.colors, color, x_1, y_1, x_2, y_2, x_3, y_3)
+        scale_points = [[0, 0], [0, self.size + 6 * self.sigma],
+                        [self.size + 6 * self.sigma, self.size + 6 * self.sigma], [self.size + 6 * self.sigma, 0]]
+        orig_points_list = [[3 * self.sigma, 3 * self.sigma],
+                            [3 * self.sigma, self.size + 3 * self.sigma],
+                            [self.size + 3 * self.sigma, self.size + 3 * self.sigma],
+                            [self.size + 3 * self.sigma, 3 * self.sigma]]
+        transposed_points = []
+        for point in orig_points_list:
+            x_t = int(random.gauss(point[0], self.sigma))
+            y_t = int(random.gauss(point[1], self.sigma))
+            transposed_points.append([x_t, y_t])
+
+        orig_points = numpy.float32(orig_points_list)
+        scale_points = numpy.float32(scale_points)
+        transposed_points = numpy.float32(transposed_points)
+        self.colors_array = numpy.array(self.colors, numpy.uint8)
+        self.transposed_colors_1, self.transform_matrix_1 = \
+            CanvasUtils.transpose(self.colors_array, transposed_points, scale_points)
+        self.colors_array, zoom_transform = \
+            CanvasUtils.transpose(self.colors_array, orig_points, scale_points)
+        self.transform_matrix_1 = numpy.matmul(numpy.linalg.inv(zoom_transform), self.transform_matrix_1)
+        transposed_points = []
+        for point in orig_points_list:
+            x_t = int(random.gauss(point[0], self.sigma))
+            y_t = int(random.gauss(point[1], self.sigma))
+            transposed_points.append([x_t, y_t])
+        transposed_points = numpy.float32(transposed_points)
+        self.transposed_colors_2, transform_matrix_2 = \
+            CanvasUtils.transpose(self.transposed_colors_1, transposed_points, scale_points)
+        transform_matrix_2 = numpy.matmul(numpy.linalg.inv(zoom_transform), transform_matrix_2)
+        return [self.colors_array, self.transposed_colors_1, self.transposed_colors_2], \
+            self.transform_matrix_1, transform_matrix_2
