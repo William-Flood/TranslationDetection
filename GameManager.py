@@ -74,7 +74,7 @@ class GameManager:
         transposed_points = numpy.float32(transposed_points)
         self.transposed_colors_2, transform_matrix_2 = \
             CanvasUtils.transposeByPerspective(self.transposed_colors_1, orig_points, transposed_points)
+        transform_matrix_2 = numpy.linalg.inv(transform_matrix_2)
         return [self.colors_array, self.transposed_colors_1, self.transposed_colors_2], \
             self.transform_matrix_1, transform_matrix_2
-
 

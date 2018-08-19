@@ -126,10 +126,40 @@ class CanvasUtils:
         return transposed_array, M
 
     @staticmethod
-    def transformByMatrix(original_array, matrix):
+    def transform_by_matrix(original_array, matrix):
         transposed_array = cv2.warpPerspective(original_array, matrix, original_array.shape[:-1], cv2.INTER_LINEAR,
-                                               cv2.BORDER_CONSTANT, (255,255,255))
+                                               cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
         return transposed_array
+
+    @staticmethod
+    def make_softmax_transform_matrix(matrix):
+        flattened_labels = []
+        matrix_sum = 0
+        min_neg_value = 0
+        for label_row in matrix:
+            for label_item in label_row:
+                flattened_labels.append(label_item)
+                matrix_sum = matrix_sum + label_item
+                if min_neg_value > label_item:
+                    min_neg_value = label_item
+        min_neg_value = min_neg_value * -1
+        matrix_sum = matrix_sum + min_neg_value * 10
+        scale = (1/matrix_sum) / (1 + (1/matrix_sum))
+        min_neg_value = min_neg_value * scale
+        for label_index in range(len(flattened_labels)):
+            flattened_labels[label_index] = flattened_labels[label_index] * scale + min_neg_value
+        flattened_labels.append(scale)
+        flattened_labels.append(min_neg_value)
+        return numpy.array(flattened_labels, numpy.float32)
+
+    @staticmethod
+    def make_transform_from_softmaxed(s_array):
+        d_array = s_array * 1/s_array[9]
+        t_matrix = numpy.empty([3,3])
+        for row_index in range(3):
+            for column_index in range(3):
+                t_matrix[column_index][row_index] = d_array[row_index + 3*column_index] - d_array[10]
+        return t_matrix
 
     @staticmethod
     def in_range(x_1, x_2, radius):
