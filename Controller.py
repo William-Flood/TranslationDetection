@@ -5,6 +5,7 @@ from CanvasUtils import CanvasUtils
 import numpy as np
 import pickle
 import NLib as nl
+import random
 
 
 class Controller:
@@ -18,6 +19,7 @@ class Controller:
         self.game = GameManager(BOARD_SIZE, BOARD_SIGMA)
         output_size = 11
         self.model = Model(self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.channels, "Fred", output_size)
+        self.init_model = Model(self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.channels, "Terry", output_size)
         self.saved_batches = []
         self.MAX_SAVED_BATCH_SIZE = 100
         self.saved_batch_index = 1
@@ -79,7 +81,7 @@ class Controller:
             batch_inputs.append(current_screen_array)
             batch_int_outs.append(int_out_softmaxed)
 
-        result = (np.array(batch_inputs, np.float32), batch_int_outs), np.array(batch_outputs, np.float32), orig_screens
+        result = [np.array(batch_inputs, np.float32), batch_int_outs], np.array(batch_outputs, np.float32), orig_screens
         if len(self.saved_batches) < self.MAX_SAVED_BATCH_SIZE:
             self.saved_batches.append(result)
         self.need_reset = True
@@ -93,8 +95,9 @@ class Controller:
             transform_matrix = CanvasUtils.make_transform_from_softmaxed(transform_list[data_index])
             corrected_screen = CanvasUtils.transform_by_matrix(batch[0][1],
                                                                np.linalg.inv(transform_matrix))
-            corrected_screens.append(corrected_screen)
             processed_channel = nl.preprocess(corrected_screen, self.IMAGE_WIDTH, self.IMAGE_HEIGHT)
+            corrected_screens.append([[batch[0][0], batch[0][1], corrected_screen],
+                                      [batch[1][0], batch[1][1], processed_channel]])
             batch[1][2] = processed_channel
             current_screen_array = np.array(batch[1], np.float32)
             current_screen_array = np.moveaxis(current_screen_array, 0, -1)
@@ -104,11 +107,15 @@ class Controller:
 
     def train(self):
         train_step, y_, accuracy = self.model.trainee(.00005)
+        init_train_step, init_y_, init_accuracy = self.init_model.trainee(.00005)
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             LOAD_EPISODE = 0
             try:
                 self.model.load(LOAD_EPISODE, sess)
+                assign_ops = self.init_model.deep_copy(self.model)
+                for op in assign_ops:
+                    sess.run(op)
             except Exception as ex:
                 print("Load failed")
             training_cycles = 50000
@@ -116,22 +123,27 @@ class Controller:
             reset_time = 20
             batch_save_time = 10
             net_save_time = 20
-            accuracy_report_frequency = 1
+            accuracy_report_frequency = 10
             save_batches = False
             max_report_cycle = 100
             max_encountered = 0
             max_encountered_on = 0
             blind_max = 0
-            double_down_frequency = 1
+            double_down_frequency = 10
+            init_copy_rate = 10
 
             for i in range(training_cycles):
                 print("Cycle " + str(i+1))
                 if self.need_reset and i % reset_time == 0:
                     for game in self.game_list:
                         game.reset()
-                inputs, outputs = self.make_batch(batch_size)
-                blind_outputs = np.copy(outputs)
-                np.random.shuffle(blind_outputs)
+                inputs, outputs, screen = self.make_orig_preserved_batch(batch_size)
+                intermediate_steps = random.randrange(3) + 1
+                for intermediate_step in range(intermediate_steps):
+                    inputs[1] = self.init_model.soft_out.eval(feed_dict={
+                        self.init_model.x: inputs[0], self.init_model.int_out: inputs[1], self.init_model.keep_prob: 1.0})
+                    inputs[0], screen = self.make_next_batch(screen, inputs[1])
+
                 if save_batches and self.need_reset and i != 0 and i % batch_save_time == 0 and \
                         (len(self.saved_batches) < self.MAX_SAVED_BATCH_SIZE):
                     try:
@@ -144,16 +156,23 @@ class Controller:
                     except Exception as ex:
                         save_batches = False
                         print("Save error:" + str(ex))
-                blind_int_outs = np.copy(inputs[1])
-                np.random.shuffle(blind_int_outs)
                 if (i + 1) % accuracy_report_frequency == 0:
+                    blind_outputs = np.copy(outputs)
+                    np.random.shuffle(blind_outputs)
+                    blind_int_outs = np.copy(inputs[1])
+                    np.random.shuffle(blind_int_outs)
                     train_accuracy = accuracy.eval(feed_dict={
                         self.model.x: inputs[0], self.model.int_out: inputs[1], y_: outputs, self.model.keep_prob: 1.0})
                     blind_train_accuracy = accuracy.eval(feed_dict={
                         self.model.x: inputs[0], self.model.int_out: blind_int_outs,
                         y_: blind_outputs, self.model.keep_prob: 1.0})
+                    # init_train_accuracy = init_accuracy.eval(feed_dict={
+                    #     self.init_model.x: inputs[0], self.init_model.int_out: inputs[1], init_y_: outputs,
+                    #     self.init_model.keep_prob: 1.0})
+
                     print('step %d, training accuracy %g' % ((i + 1), train_accuracy))
                     print('step %d, blind training accuracy %g' % ((i + 1), blind_train_accuracy))
+                    # print('step %d, init training accuracy %g' % ((i + 1), init_train_accuracy))
                     if train_accuracy > max_encountered:
                         max_encountered = train_accuracy
                         max_encountered_on = i + 1
@@ -162,7 +181,7 @@ class Controller:
                         max_encountered_on = i + 1
                 if (i + 1) % double_down_frequency == 0:
                     inputs_1, outputs_1, screen = self.make_orig_preserved_batch(batch_size)
-                    first_guesses = self.model.output.eval(feed_dict={
+                    first_guesses = self.model.soft_out.eval(feed_dict={
                         self.model.x: inputs_1[0], self.model.int_out: inputs_1[1], self.model.keep_prob: 1.0})
                     inputs_2 = self.make_next_batch(screen, first_guesses)
                     double_train_accuracy = accuracy.eval(feed_dict={
@@ -176,6 +195,10 @@ class Controller:
                                           y_: outputs, self.model.keep_prob: 0.5})
                 if 0 != i and 0 == i % net_save_time:
                     self.model.save(i, sess)
+                if 0 != i and 0 == i % init_copy_rate:
+                    assign_ops = self.init_model.deep_copy(self.model)
+                    for op in assign_ops:
+                        sess.run(op)
 
 
 if __name__ == '__main__':

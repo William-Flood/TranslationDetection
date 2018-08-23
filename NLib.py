@@ -44,7 +44,7 @@ def conv2d_layer(input_tensor, filter_size, out_dim, name, strides, func=tf.nn.r
         output = tf.nn.conv2d(input_tensor, w, strides=strides, padding='SAME') + b
         if func is not None:
             output = func(output)
-    return output
+    return output, w, b
 
 
 def dense_layer(input_tensor, out_dim, name, func=tf.nn.relu):
@@ -59,7 +59,7 @@ def dense_layer(input_tensor, out_dim, name, func=tf.nn.relu):
         output = tf.matmul(input_tensor, w) + b
         if func is not None:
             output = func(output)
-    return output
+    return output, w, b
 
 
 def _checkpoint_filename(self, episode):
