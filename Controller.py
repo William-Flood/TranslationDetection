@@ -16,8 +16,7 @@ class Controller:
         BOARD_SIGMA = 10
         self.channels = 3
         self.game_list = []
-        self.game = GameManager(BOARD_SIZE, BOARD_SIGMA)
-        output_size = 11
+        output_size = 30
         self.model = Model(self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.channels, "Fred", output_size)
         self.init_model = Model(self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.channels, "Terry", output_size)
         self.saved_batches = []
@@ -25,6 +24,21 @@ class Controller:
         self.saved_batch_index = 1
         self.need_reset = False
         self.saved_batches_in_use = True
+        np.random.seed(33127436)
+        expansion_levels = (15, 18, 30)
+        self.expanders = []
+        for expansion_index in range(len(expansion_levels)):
+            if 0 == expansion_index:
+                self.expanders.append(np.random.random_sample((expansion_levels[expansion_index], 11)))
+            else:
+                self.expanders.append(np.random.random_sample(
+                    (expansion_levels[expansion_index], expansion_levels[expansion_index-1])))
+        np.random.seed()
+        self.compressors = []
+        for expander in self.expanders[::-1]:
+            self.compressors.append(np.linalg.pinv(expander))
+        self.game = GameManager(BOARD_SIZE, BOARD_SIGMA)
+
 
     def make_batch(self, batch_size):
         result = None
@@ -73,10 +87,19 @@ class Controller:
                 processed_channel = nl.preprocess(screen[channel_index], self.IMAGE_WIDTH, self.IMAGE_HEIGHT)
                 processed_screen.append(processed_channel)
             label_array = CanvasUtils.make_softmax_transform_matrix(labels)
+            int_out_softmaxed = CanvasUtils.make_softmax_transform_matrix(int_out)
+            label_array = np.expand_dims(label_array, axis=1)
+            int_out_softmaxed = np.expand_dims(int_out_softmaxed, axis=1)
+            for expander in self.expanders:
+                label_array = np.matmul(expander, label_array)
+                int_out_softmaxed = np.matmul(expander, int_out_softmaxed)
+            label_array = label_array / np.sum(label_array)
+            int_out_softmaxed = int_out_softmaxed / np.sum(int_out_softmaxed)
+            label_array = np.squeeze(label_array)
+            int_out_softmaxed = np.squeeze(int_out_softmaxed)
             orig_screens.append([screen, processed_screen])
             current_screen_array = np.array(processed_screen, np.float32)
             current_screen_array = np.moveaxis(current_screen_array, 0, -1)
-            int_out_softmaxed = CanvasUtils.make_softmax_transform_matrix(int_out)
             batch_outputs.append(label_array)
             batch_inputs.append(current_screen_array)
             batch_int_outs.append(int_out_softmaxed)
@@ -92,7 +115,12 @@ class Controller:
         corrected_screens = []
         data_index = 0
         for batch in orig_data:
-            transform_matrix = CanvasUtils.make_transform_from_softmaxed(transform_list[data_index])
+            collapsed = transform_list[data_index]
+            collapsed = np.expand_dims(collapsed, axis=1)
+            for compressor in self.compressors:
+                collapsed = np.matmul(compressor, collapsed)
+            collapsed = np.squeeze(collapsed)
+            transform_matrix = CanvasUtils.make_transform_from_softmaxed(collapsed)
             corrected_screen = CanvasUtils.transform_by_matrix(batch[0][1],
                                                                np.linalg.inv(transform_matrix))
             processed_channel = nl.preprocess(corrected_screen, self.IMAGE_WIDTH, self.IMAGE_HEIGHT)
@@ -107,7 +135,6 @@ class Controller:
 
     def train(self):
         train_step, y_, accuracy = self.model.trainee(.00005)
-        init_train_step, init_y_, init_accuracy = self.init_model.trainee(.00005)
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
             LOAD_EPISODE = 0
@@ -139,10 +166,14 @@ class Controller:
                         game.reset()
                 inputs, outputs, screen = self.make_orig_preserved_batch(batch_size)
                 intermediate_steps = random.randrange(3) + 1
+                first_target_screen = screen[0][1][0]
+                skewed_screen = screen[0][1][1]
                 for intermediate_step in range(intermediate_steps):
                     inputs[1] = self.init_model.soft_out.eval(feed_dict={
                         self.init_model.x: inputs[0], self.init_model.int_out: inputs[1], self.init_model.keep_prob: 1.0})
                     inputs[0], screen = self.make_next_batch(screen, inputs[1])
+                    corrected_screen = screen[0][1][2]
+                    breakpointmarker = "test"
 
                 if save_batches and self.need_reset and i != 0 and i % batch_save_time == 0 and \
                         (len(self.saved_batches) < self.MAX_SAVED_BATCH_SIZE):
