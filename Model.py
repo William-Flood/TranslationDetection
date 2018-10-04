@@ -36,8 +36,8 @@ class Model:
         self.fc_drop = self.dropout(self.fully_connected_3, model_name + '-' + "dropout_1")
         self.output, w, b = nl.dense_layer(self.fc_drop, output_size, model_name + '-' + 'fc1o', None)
         self.append_var(w, b)
-        tf_vars = tf.global_variables()
         self.soft_out = tf.nn.softmax(self.output)
+        tf_vars = tf.global_variables()
         self.saver = tf.train.Saver({var.name: var for var in tf_vars}, max_to_keep=0)
 
     @staticmethod

@@ -153,6 +153,25 @@ class CanvasUtils:
         return numpy.array(flattened_labels, numpy.float32)
 
     @staticmethod
+    def rollout(vector, iterations):
+        expanded_vector = numpy.zeros((vector.shape[0] * iterations, 1))
+        dimension = 0
+        for value in vector:
+            for expansion in range(iterations):
+                expanded_vector[dimension + expansion * vector.shape[0]][0] = value
+            dimension = dimension + 1
+        return expanded_vector
+
+    @staticmethod
+    def collapse(expanded_vector, dimensions, iterations):
+        vector = numpy.zeros((dimensions, 1))
+        for dimension in range(dimensions):
+            for expansion in range(iterations):
+                vector[dimension][0] = vector[dimension][0] + \
+                                       expanded_vector[dimension + expansion * dimensions][0] / iterations
+        return vector
+
+    @staticmethod
     def make_transform_from_softmaxed(s_array):
         d_array = s_array * 1/s_array[9]
         t_matrix = numpy.empty([3,3])

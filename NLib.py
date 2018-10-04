@@ -72,15 +72,15 @@ def _get_episode_from_filename(filename):
     return int(split_name[1])
 
 
-def save(self, episode, session):
-    self.saver.save(session, _checkpoint_filename(self, episode))
+def save(model, episode, session):
+    model.saver.save(session, _checkpoint_filename(model, episode))
 
 
-def load(self, episode, session):
-    filename = tf.train.latest_checkpoint(os.path.dirname(_checkpoint_filename(self, episode=0)))
+def load(model, episode, session):
+    filename = tf.train.latest_checkpoint(os.path.dirname(_checkpoint_filename(model, episode=0)))
     if episode > 0:
-        filename = _checkpoint_filename(self, episode)
-    self.saver.restore(session, filename)
+        filename = _checkpoint_filename(model, episode)
+    model.saver.restore(session, filename)
     return _get_episode_from_filename(filename)
 
 
